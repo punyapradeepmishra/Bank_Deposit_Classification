@@ -1,0 +1,159 @@
+---
+title: "Untitled"
+author: "Punya Pradeep Mishra"
+date: "April 29, 2019"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd("C:/Data Mining/Project")
+voterpref <- read.csv("bank-full.csv",header = TRUE)
+attach(voterpref)
+set.seed(71923)
+train <- sample(nrow(voterpref),0.7*nrow(voterpref))
+voterpref_train <- voterpref[train,]
+voterpref_test <- voterpref[-train,]
+head(voterpref_train)
+voterpref_train$y = ifelse(voterpref_train$y == "no" , 0,1)
+voterpref_test$y = ifelse(voterpref_test$y == "no" , 0,1)
+log.model <-  glm(y ~ . , voterpref_train, family = "binomial")
+summary(log.model)
+predicted.test <- predict(log.model , newdata = voterpref_test,  type = "response")
+predicted.log.train = ifelse(log.model$fitted.values > 0.5, 1, 0 )
+predicted.log.test = ifelse( predicted.test > 0.5, 1, 0 )
+
+## Confusion matrix (Train)
+table.log.train <- table(voterpref_train$y, predicted.log.train )
+rownames(table.log.train) <- c("No","Yes")
+colnames(table.log.train) <- c("No","Yes")
+table.log.train
+
+## Accuracy Train
+accuracy <- sum(voterpref_train$y  == predicted.log.train)/nrow(voterpref_train)
+accuracy
+
+##
+## Sensitivity Train
+##
+sensitivity <- sum(predicted.log.train == 1 & voterpref_train$y == 1)/sum(voterpref_train$y == 1)
+sensitivity
+
+##
+## Specificity Train
+##
+specificity <- sum(predicted.log.train == 0 & voterpref_train$y == 0)/sum(voterpref_train$y == 0)
+specificity
+
+##
+## Error Rate Train
+##
+error_rate <- 1-accuracy
+error_rate
+
+## Make data for a ROC curve
+##
+cutoff <- seq(0, 1, length = 100)
+fpr <- numeric(100)
+tpr <- numeric(100)
+
+roc.table_train <- data.frame(Cutoff = cutoff, FPR = fpr,TPR = tpr)
+
+## TPR is the Sensitivity; FPR is 1-Specificity
+for (i in 1:100) {
+  roc.table_train$FPR[i] <- sum(log.model$fitted.values > cutoff[i] & voterpref_train$y == 0)/sum(voterpref_train$y == 0)
+  roc.table_train$TPR[i] <- sum(log.model$fitted.values > cutoff[i] & voterpref_train$y == 1)/sum(voterpref_train$y == 1)
+}
+
+
+
+## Make data for a ROC curve
+##
+cutoff <- seq(0, 1, length = 100)
+fpr <- numeric(100)
+tpr <- numeric(100)
+
+roc.table_test <- data.frame(Cutoff = cutoff, FPR = fpr,TPR = tpr)
+write.csv(roc.table_test,file = "MyData_log_test_new.csv")
+## TPR is the Sensitivity; FPR is 1-Specificity
+for (i in 1:100) {
+  roc.table_test$FPR[i] <- sum(predicted.test > cutoff[i] & voterpref_test$y == 0)/sum(voterpref_test$y == 0)
+  roc.table_test$TPR[i] <- sum(predicted.test > cutoff[i] & voterpref_test$y == 1)/sum(voterpref_test$y == 1)
+}
+
+##
+## The following command (lines) adds the test ROC in green (to the graph on previous plot) 
+plot(TPR ~ FPR, data = roc.table_train, type = "o",xlab="1 - Specificity",ylab="Sensitivity",col="blue",lty=2)
+abline(a = 0, b = 1, lty = 2,col="red")
+lines(TPR~FPR,data = roc.table_test, type="o",col="green",lty=2)
+
+library(pROC)
+predicted_values_train = log.model$fitted.values
+actual_values_train = voterpref_train$y
+library(ROCR)
+df1_train <- data.frame(predicted_values_train,actual_values_train)
+pred_train <- prediction( df1_train$predicted_values_train, df1_train$actual_values_train)
+perf_train <- performance( pred_train, "acc") # Accuracy as a function of cutoff
+plot( perf_train , show.spread.at=seq(0, 1, by=0.1), col="red")
+df_val_train = data.frame(perf_train@x.values,perf_train@y.values)
+##
+#Accuracy against cutoff for test
+##
+library(pROC)
+actual_values_test = voterpref_test$y
+library(ROCR)
+df1_test <- data.frame(predicted.test,actual_values_test)
+pred_test <- prediction( df1_test$predicted.test, df1_test$actual_values_test)
+perf_test <- performance( pred_test, "acc") # Accuracy as a function of cutoff
+plot( perf_test , show.spread.at=seq(0, 1, by=0.1), col="blue",add = TRUE)
+df_val_test_log = data.frame(perf_test@x.values,perf_test@y.values)
+
+voterpref_lasso <- read.csv("bank-full.csv",header = TRUE)
+attach(voterpref_lasso)
+x_lasso=model.matrix(y~.,voterpref_lasso)[,-1]
+voterpref_lasso$y = ifelse(voterpref_lasso$y == "no" , 0,1)
+y_lasso=as.factor(voterpref_lasso$y)
+#install.packages('glmnet')
+library(glmnet)
+set.seed(71923)
+train_lasso = sample(nrow(voterpref_lasso),0.7*nrow(voterpref_lasso))
+test_lasso = (-train_lasso)
+lasso.mod = glmnet(x_lasso[train_lasso,],y_lasso[train_lasso],alpha = 1,family="binomial")
+plot(lasso.mod)
+set.seed(71923)
+cv.out= cv.glmnet(x_lasso[train_lasso,],y_lasso[train_lasso],alpha = 1,family="binomial")
+plot(cv.out)
+best_lam = cv.out$lambda.min
+lasso.pred_train = predict(lasso.mod,s=best_lam,newx = x_lasso[train_lasso,],type="coefficients")
+lasso.pred = predict(lasso.mod,s=best_lam,newx = x_lasso[test_lasso,],type="coefficients")
+```
+...{r}
+##
+#Lift Chart for train
+##
+
+df2 <- data.frame(predicted_values_train,actual_values_train)
+df2S <- df2[order(-predicted_values_train),]
+df2S$Gains <- cumsum(df2S$actual_values_train)
+plot(df2S$Gains,type="n",main="Training Data Lift Chart",xlab="Number of Cases",ylab="Cumulative Success")
+lines(df2S$Gains)
+abline(0,sum(df2S$actual_values_train)/nrow(df2S),lty = 2, col="red")
+
+
+##
+#Lift Chart for test
+##
+
+df3 <- data.frame(predicted.test,actual_values_test)
+df3S <- df3[order(-predicted.test),]
+df3S$Gains <- cumsum(df3S$actual_values_test)
+plot(df3S$Gains,type="n",main="Test Data Lift Chart",xlab="Number of Cases",ylab="Cumulative Success")
+lines(df3S$Gains)
+abline(0,sum(df3S$actual_values_test)/nrow(df3S),lty = 2, col="blue")
+...
+
+
+
